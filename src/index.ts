@@ -70,6 +70,10 @@ class Round {
   toString() {
     return this.games.map((game) => game.toString()).join(" ");
   }
+
+  get isEmpty(): boolean {
+    return this.numGames === 0;
+  }
 }
 
 class Cycle {
@@ -77,9 +81,11 @@ class Cycle {
   public teams: Team[] = [];
   public games: Game[] = [];
   public slots: number;
+  public bufferRound: Round;
 
   constructor(slots: number) {
     this.slots = slots;
+    this.bufferRound = new Round();
   }
 
   toString() {
@@ -91,7 +97,12 @@ class Cycle {
       _.isEmpty(this.rounds) ||
       _.last(this.rounds)?.numGames === this.slots
     ) {
-      this.rounds.push(new Round());
+      const gamesFromBuffer = this.bufferRound.games.slice(0, this.slots);
+      this.bufferRound.games = this.bufferRound.games.slice(this.slots);
+
+      const nextRound = new Round();
+      nextRound.games = gamesFromBuffer;
+      this.rounds.push(nextRound);
     }
     return _.last(this.rounds)!;
   }
