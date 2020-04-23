@@ -110,6 +110,7 @@ class Cycle {
   get teamLessPlayed(): Team | undefined {
     const lessPlayedTeam = _(this.teams)
       .difference(this.currentRound.teamsPlayed)
+      .filter((team) => !_.isUndefined(this.getOpponentFor(team)))
       .sortBy((team) => team.gamesPlayed)
       .head();
     console.log("less played team", lessPlayedTeam);
@@ -168,7 +169,8 @@ export class FixtureBuilder {
     if (_.isUndefined(teamLessPlayed)) {
       console.error("cannot find less played team", this.cycle.slots);
       console.error("this.cycle.currentRound", this.cycle.currentRound);
-      throw new Error("cannot find less played team");
+      this.cycle.addGame(new Game(new Team(-1), new Team(-1)));
+      return this;
     }
     const opponent = this.cycle.getOpponentFor(teamLessPlayed);
 
