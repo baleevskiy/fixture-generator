@@ -6,11 +6,11 @@ class Team {
   public playedTo: Team[] = [];
   public teamId: number;
 
-  constructor(teamId) {
+  constructor(teamId: number) {
     this.teamId = teamId;
   }
 
-  canPlayTo(team) {
+  canPlayTo(team: Team) {
     return !_.includes(this.playedTo, team);
   }
 
@@ -20,6 +20,10 @@ class Team {
 
   get homePlayFactor() {
     return this.awayGames - this.homeGames;
+  }
+
+  toString() {
+    return `${this.teamId}`;
   }
 }
 
@@ -35,18 +39,36 @@ class Game {
     this.awayTeam.awayGames += 1;
     this.homeTeam.playedTo.push(this.awayTeam);
     this.awayTeam.playedTo.push(this.homeTeam);
+    this.slotId = slotId;
   }
 
   get teams() {
     return [this.homeTeam, this.awayTeam];
+  }
+
+  toString() {
+    return `(${this.homeTeam.toString()} ${this.awayTeam.toString()})`;
   }
 }
 
 class Round {
   public games: Game[] = [];
 
-  getTeamsPlayed() {
+  get teamsPlayed() {
     return _.uniq(_.flattenDeep(this.games.map((game) => game.teams)));
+  }
+
+  get numGames() {
+    return _.size(this.games);
+  }
+
+  addGame(game: Game) {
+    this.games.push(game);
+    return this;
+  }
+
+  toString() {
+    return this.games.map((game) => game.toString()).join(" ");
   }
 }
 
@@ -54,47 +76,112 @@ class Cycle {
   public rounds: Round[] = [];
   public teams: Team[] = [];
   public games: Game[] = [];
+  public slots: number;
 
-  get twoTeamsLessPlayed(): Team[] {
-    return _(this.teams)
+  constructor(slots: number) {
+    this.slots = slots;
+  }
+
+  toString() {
+    return this.rounds.map((round) => round.toString()).join("\r\n");
+  }
+
+  get currentRound(): Round {
+    if (
+      _.isEmpty(this.rounds) ||
+      _.last(this.rounds)?.numGames === this.slots
+    ) {
+      this.rounds.push(new Round());
+    }
+    return _.last(this.rounds)!;
+  }
+
+  getOpponentFor(team: Team): Team | undefined {
+    const opponent = _(this.teams)
+      .difference(this.currentRound.teamsPlayed)
+      .difference([team])
+      .difference(team.playedTo)
       .sortBy((team) => team.gamesPlayed)
-      .splice(0, 2)
-      .value();
+      .head();
+
+    return opponent;
+  }
+
+  get teamLessPlayed(): Team | undefined {
+    const lessPlayedTeam = _(this.teams)
+      .difference(this.currentRound.teamsPlayed)
+      .sortBy((team) => team.gamesPlayed)
+      .head();
+    console.log("less played team", lessPlayedTeam);
+
+    return lessPlayedTeam;
   }
 
   addGame(game: Game) {
     this.games.push(game);
+    this.currentRound.addGame(game);
     return this;
+  }
+
+  get numGames() {
+    return _.size(this.games);
   }
 }
 
 type Fixture = Round[];
 
-class FixtureBuilder {
+export class FixtureBuilder {
   public rounds = [];
-  public cycle = new Cycle();
+  public cycle: Cycle;
 
-  constructor() {}
+  constructor() {
+    this.cycle = new Cycle(0);
+  }
 
-  schedule(teamNumber: number, slotNumber: number): Fixture {
-    this.cycle = new Cycle();
+  generateFixture(teamNumber: number, slotNumber: number): Cycle {
+    if (slotNumber > teamNumber / 2) {
+      throw new Error(
+        `slotNumber cannot be larger than half team number ${teamNumber} < ${slotNumber}`
+      );
+    }
+
+    if (slotNumber < 1) {
+      return this.cycle;
+    }
+
+    this.cycle.slots = slotNumber;
     this.cycle.teams = this.makeTeams(teamNumber);
-
-    return this;
+    while (this.cycle.numGames < (teamNumber * (teamNumber - 1)) / 2) {
+      this.scheduleNextGame();
+    }
+    return this.cycle;
   }
 
   addRound(round: Round) {}
 
-  makeTeams(number) {
-    return _.times(number, (id) => new Team(id + 1));
+  makeTeams(teamNumber: number) {
+    return _.times(teamNumber, (id) => new Team(id + 1));
   }
 
   scheduleNextGame() {
+    const teamLessPlayed = this.cycle.teamLessPlayed;
+    if (_.isUndefined(teamLessPlayed)) {
+      console.error("cannot find less played team", this.cycle.slots);
+      console.error("this.cycle.currentRound", this.cycle.currentRound);
+      throw new Error("cannot find less played team");
+    }
+    const opponent = this.cycle.getOpponentFor(teamLessPlayed);
+
+    if (_.isUndefined(opponent)) {
+      this.cycle.addGame(new Game(new Team(-1), new Team(-1)));
+      return;
+    }
     const [awayTeam, homeTeam] = _.sortBy(
-      this.cycle.twoTeamsLessPlayed,
+      [teamLessPlayed, opponent],
       "homePlayFactor"
     );
     this.cycle.addGame(new Game(homeTeam, awayTeam));
+
     return this;
   }
 }
