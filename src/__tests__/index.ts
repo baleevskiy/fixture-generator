@@ -2,7 +2,7 @@ import _ from "lodash";
 import { FixtureBuilder } from "../index";
 
 _.forEach(_.range(4, 25), (teamNumber) => {
-  _.forEach([0, 1, 2], (extraBye) => {
+  _.forEach([0, 1, 2, 3, 4, 5], (extraBye) => {
     it(`should generate fiture for ${teamNumber} teams with ${extraBye} extrabye`, () => {
       const builder = new FixtureBuilder(
         teamNumber,
@@ -10,7 +10,7 @@ _.forEach(_.range(4, 25), (teamNumber) => {
       );
       const cycle = builder.generateFixture();
 
-      expect(cycle.toString()).toMatchSnapshot();
+      expect(`\n${cycle.toString()}`).toMatchSnapshot();
       expect(cycle.slotGameCounter).toMatchSnapshot();
       // console.log(JSON.stringify(cycle.teamIds));
       // expect(_.zip(...cycle.teamIds)).toEqual([]);

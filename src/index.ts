@@ -53,19 +53,31 @@ class GameCounter {
     );
   }
 
+  public maxPlayedSlotGames(team: Team): number {
+    return _.max(_.values(this.getPlayed(team)))!;
+  }
+
+  public minPlayedSlotGames(team: Team): number {
+    return _.min(_.values(this.getPlayed(team)))!;
+  }
+
+  public getSpreadInPlayedSlots(team: Team): number {
+    return this.maxPlayedSlotGames(team) - this.minPlayedSlotGames(team);
+  }
+
   public play(team: Team, slot: number) {
     this.getPlayed(team)[slot] += 1;
     return this;
   }
 
   public getNextSlotFor(teamA: Team, teamB: Team, round: Round): number {
-    const [maxPlayedSlotsForA, maxPlayedSlotsForB] = _.map(
+    const [maxSpreadSlotsForA, maxSpreadSlotsForB] = _.map(
       [teamA, teamB],
-      (team) => _.max(_.values(this.getPlayed(team)))
+      (team) => this.getSpreadInPlayedSlots(team)
     );
 
     const teamChoosesTheSlot =
-      maxPlayedSlotsForA! > maxPlayedSlotsForB! ? teamA : teamB;
+      maxSpreadSlotsForA! > maxSpreadSlotsForB! ? teamA : teamB;
     const teamPlayed = this.getPlayed(teamChoosesTheSlot);
 
     return _.minBy(round.emptySlots, (slotId) => teamPlayed[slotId]) as number;
@@ -96,9 +108,13 @@ class Game {
   }
 
   toString() {
-    return `(${this.homeTeam.toString()} ${this.awayTeam.toString()})${
-      this.slotId
-    } `;
+    return `(${_(this.teamIds)
+      .map((id) => _.padStart(id.toString(), 2))
+      .join(" ")})`;
+  }
+
+  get isFake() {
+    return this.homeTeam.teamId === -1 || this.awayTeam.teamId === -1;
   }
 }
 
@@ -197,7 +213,16 @@ class Cycle {
     const lessPlayedTeam = _(this.teams)
       .difference(this.currentRound.teamsPlayed)
       .filter((team) => !_.isUndefined(this.getOpponentFor(team)))
-      .sortBy((team) => `${team.gamesPlayed}_${Math.random()}`)
+      .orderBy(
+        [
+          "gamesPlayed",
+          //this.slotGameCounter.maxPlayedSlotGames(team),
+          (team) => this.slotGameCounter.getSpreadInPlayedSlots(team),
+          () => Math.random(),
+        ],
+        ["asc", "desc", "asc"]
+      )
+
       .head();
     //console.log("less played team", lessPlayedTeam);
 
@@ -218,6 +243,10 @@ class Cycle {
 
   get numGames() {
     return _.size(this.games);
+  }
+
+  get numRealGames() {
+    return _.size(_.reject(this.games, "isFake"));
   }
 }
 
@@ -248,7 +277,7 @@ export class FixtureBuilder {
 
     this.cycle.teams = this.makeTeams(this.teamNumber);
     while (
-      this.cycle.numGames <
+      this.cycle.numRealGames <
       (this.teamNumber * (this.teamNumber - 1)) / 2
     ) {
       this.scheduleNextGame();
