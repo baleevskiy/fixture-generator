@@ -1,7 +1,7 @@
 import _ from "lodash";
 
-interface NumberMap {
-  [key: number]: number;
+interface NumberMap<T> {
+  [key: number]: T;
 }
 class Team {
   public homeGames: number = 0;
@@ -30,6 +30,48 @@ class Team {
   }
 }
 
+class GameCounter {
+  public gameCountBySlotByTeam: NumberMap<NumberMap<number>>;
+  protected slotNumber: number;
+
+  constructor(slotNumber: number) {
+    this.gameCountBySlotByTeam = {};
+    this.slotNumber = slotNumber;
+  }
+
+  public makeCounterForTeam(team: Team) {
+    this.gameCountBySlotByTeam[team.teamId] = _.mapValues(
+      _.mapKeys(_.range(this.slotNumber)),
+      () => 0
+    );
+    return this.gameCountBySlotByTeam[team.teamId];
+  }
+
+  public getPlayed(team: Team): NumberMap<number> {
+    return (
+      this.gameCountBySlotByTeam[team.teamId] || this.makeCounterForTeam(team)
+    );
+  }
+
+  public play(team: Team, slot: number) {
+    this.getPlayed(team)[slot] += 1;
+    return this;
+  }
+
+  public getNextSlotFor(teamA: Team, teamB: Team, round: Round): number {
+    const [maxPlayedSlotsForA, maxPlayedSlotsForB] = _.map(
+      [teamA, teamB],
+      (team) => _.max(_.values(this.getPlayed(team)))
+    );
+
+    const teamChoosesTheSlot =
+      maxPlayedSlotsForA! > maxPlayedSlotsForB! ? teamA : teamB;
+    const teamPlayed = this.getPlayed(teamChoosesTheSlot);
+
+    return _.minBy(round.emptySlots, (slotId) => teamPlayed[slotId]) as number;
+  }
+}
+
 class Game {
   public awayTeam: Team;
   public homeTeam: Team;
@@ -54,12 +96,19 @@ class Game {
   }
 
   toString() {
-    return `(${this.homeTeam.toString()} ${this.awayTeam.toString()})`;
+    return `(${this.homeTeam.toString()} ${this.awayTeam.toString()})${
+      this.slotId
+    } `;
   }
 }
 
 class Round {
   public games: Game[] = [];
+  public cycle: Cycle;
+
+  constructor(cycle: Cycle) {
+    this.cycle = cycle;
+  }
 
   get teamsPlayed() {
     return _.uniq(_.flattenDeep(this.games.map((game) => game.teams)));
@@ -69,13 +118,22 @@ class Round {
     return _.size(this.games);
   }
 
+  get emptySlots() {
+    return _.difference(_.range(this.cycle.slots), _.map(this.games, "slotId"));
+  }
+
   addGame(game: Game) {
     this.games.push(game);
+    this.cycle.slotGameCounter
+      .play(game.homeTeam, game.slotId)
+      .play(game.awayTeam, game.slotId);
     return this;
   }
 
   toString() {
-    return this.games.map((game) => game.toString()).join(" ");
+    return _.sortBy(this.games, "slotId")
+      .map((game) => game.toString())
+      .join(" ");
   }
 
   get isEmpty(): boolean {
@@ -93,10 +151,12 @@ class Cycle {
   public games: Game[] = [];
   public slots: number;
   public bufferRound: Round;
+  public slotGameCounter: GameCounter;
 
   constructor(slots: number) {
     this.slots = slots;
-    this.bufferRound = new Round();
+    this.slotGameCounter = new GameCounter(this.slots);
+    this.bufferRound = new Round(this);
   }
 
   toString() {
@@ -107,10 +167,6 @@ class Cycle {
     return _.map(this.rounds, "teamIds");
   }
 
-  get slotsByTeamId(): NumberMap {
-    return { 1: 4 };
-  }
-
   get currentRound(): Round {
     if (
       _.isEmpty(this.rounds) ||
@@ -119,7 +175,7 @@ class Cycle {
       const gamesFromBuffer = this.bufferRound.games.slice(0, this.slots);
       this.bufferRound.games = this.bufferRound.games.slice(this.slots);
 
-      const nextRound = new Round();
+      const nextRound = new Round(this);
       nextRound.games = gamesFromBuffer;
       this.rounds.push(nextRound);
     }
@@ -148,7 +204,13 @@ class Cycle {
     return lessPlayedTeam;
   }
 
-  addGame(game: Game) {
+  addGame(homeTeam: Team, awayTeam: Team) {
+    const slotId = this.slotGameCounter.getNextSlotFor(
+      homeTeam!,
+      awayTeam!,
+      this.currentRound
+    );
+    const game = new Game(homeTeam, awayTeam, slotId);
     this.games.push(game);
     this.currentRound.addGame(game);
     return this;
@@ -164,25 +226,31 @@ type Fixture = Round[];
 export class FixtureBuilder {
   public rounds = [];
   public cycle: Cycle;
+  public slotNumber: number;
+  public teamNumber: number;
 
-  constructor() {
-    this.cycle = new Cycle(0);
+  constructor(teamNumber: number, slotNumber: number) {
+    this.cycle = new Cycle(slotNumber);
+    this.slotNumber = slotNumber;
+    this.teamNumber = teamNumber;
   }
 
-  generateFixture(teamNumber: number, slotNumber: number): Cycle {
-    if (slotNumber > teamNumber / 2) {
+  generateFixture(): Cycle {
+    if (this.slotNumber > this.teamNumber / 2) {
       throw new Error(
-        `slotNumber cannot be larger than half team number ${teamNumber} < ${slotNumber}`
+        `slotNumber cannot be larger than half team number ${this.teamNumber} < ${this.slotNumber}`
       );
     }
 
-    if (slotNumber < 1) {
+    if (this.slotNumber < 1) {
       return this.cycle;
     }
 
-    this.cycle.slots = slotNumber;
-    this.cycle.teams = this.makeTeams(teamNumber);
-    while (this.cycle.numGames < (teamNumber * (teamNumber - 1)) / 2) {
+    this.cycle.teams = this.makeTeams(this.teamNumber);
+    while (
+      this.cycle.numGames <
+      (this.teamNumber * (this.teamNumber - 1)) / 2
+    ) {
       this.scheduleNextGame();
     }
     return this.cycle;
@@ -197,7 +265,7 @@ export class FixtureBuilder {
   scheduleNextGame(): boolean {
     const teamLessPlayed = this.cycle.teamLessPlayed;
     if (_.isUndefined(teamLessPlayed)) {
-      this.cycle.addGame(new Game(new Team(-1), new Team(-1)));
+      this.cycle.addGame(new Team(-1), new Team(-1));
       return false;
     }
     const opponent = this.cycle.getOpponentFor(teamLessPlayed);
@@ -206,7 +274,8 @@ export class FixtureBuilder {
       [teamLessPlayed, opponent],
       "homePlayFactor"
     );
-    this.cycle.addGame(new Game(homeTeam!, awayTeam!));
+
+    this.cycle.addGame(homeTeam!, awayTeam!);
 
     return true;
   }
