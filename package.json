@@ -18,7 +18,7 @@
   "homepage": "https://github.com/baleevskiy/fixture-generator#readme",
   "dependencies": {
     "@types/lodash": "4.14.150",
-    "lodash": "^4.17.15"
+    "lodash": "^4.17.19"
   },
   "devDependencies": {
     "@types/jest": "^25.2.1",
